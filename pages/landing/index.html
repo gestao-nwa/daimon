@@ -1195,8 +1195,9 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       const whats     = document.getElementById('whats').value.trim();
       const interesse = document.getElementById('interesse').value;
       const detalhes  = document.getElementById('detalhes').value.trim();
+      const intro = (window.daimonWaIntro ? window.daimonWaIntro() : 'Olá, vim pela landing page e ');
       const msg =
-        `Ol%C3%A1%2C%20vim%20pela%20landing%20page%20da%20DAIMON%20TECH.%0A%0A` +
+        encodeURIComponent(intro + 'quero atendimento da DAIMON TECH.') + `%0A%0A` +
         `Nome%3A%20${encodeURIComponent(nome)}%0A` +
         `WhatsApp%3A%20${encodeURIComponent(whats)}%0A` +
         `Interesse%3A%20${encodeURIComponent(interesse)}%0A` +
@@ -1204,5 +1205,110 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
       window.open(`https://wa.me/5511913419369?text=${msg}`, '_blank');
     });
   </script>
+  <!-- ══ Rastreio de origem (UTM) nas mensagens de WhatsApp — Kommo CRM ══
+       Reescreve as frases "quebra-gelo" para conterem sempre "landing page"
+       e o canal de origem detectado pela UTM. Sem dependências externas. -->
+  <script>
+  (function(){
+    "use strict";
+
+    /* 1) Captura e persiste as UTMs (a origem sobrevive à navegação entre páginas) */
+    var STORE_KEY = "daimon_origem";
+    function readStore(){ try{ return JSON.parse(sessionStorage.getItem(STORE_KEY)) || {}; }catch(e){ return {}; } }
+    function writeStore(o){ try{ sessionStorage.setItem(STORE_KEY, JSON.stringify(o)); }catch(e){} }
+
+    var params = new URLSearchParams(location.search);
+    var data = readStore();
+    ["utm_source","utm_medium","utm_campaign","utm_content","utm_term","gclid","fbclid"].forEach(function(k){
+      var v = params.get(k);
+      if(v){ data[k] = v; }
+    });
+    writeStore(data);
+
+    /* 2) Traduz a origem para um canal legível */
+    function isPaid(m){ return /cpc|ppc|paid|ads?|paidsearch|paid-search|display|social-paid/i.test(m||""); }
+
+    function detectChannel(){
+      var src = (data.utm_source||"").toLowerCase().trim();
+      var med = (data.utm_medium||"").toLowerCase().trim();
+
+      if(src){
+        if(/google/.test(src))            return isPaid(med) ? "do Google Ads" : "da busca do Google";
+        if(/bing|microsoft/.test(src))    return "do Bing Ads";
+        if(/insta|(^|[^a-z])ig([^a-z]|$)/.test(src)) return isPaid(med) ? "do Instagram Ads" : "do Instagram";
+        if(/face|(^|[^a-z])fb([^a-z]|$)/.test(src))  return isPaid(med) ? "do Facebook Ads" : "do Facebook";
+        if(/meta/.test(src))              return "do Meta Ads";
+        if(/tiktok|tik-tok/.test(src))    return isPaid(med) ? "do TikTok Ads" : "do TikTok";
+        if(/youtube|(^|[^a-z])yt([^a-z]|$)/.test(src)) return "do YouTube";
+        if(/whats/.test(src))             return "do WhatsApp";
+        if(/linkedin/.test(src))          return "do LinkedIn";
+        if(/e-?mail|newsletter|mailchimp|klaviyo|rd-?station/.test(src)) return "do e-mail";
+        return "de " + data.utm_source; /* origem informada, fora do mapa */
+      }
+
+      /* Sem UTM: infere por click ids ou referrer */
+      if(data.gclid)  return "do Google Ads";
+      if(data.fbclid) return "do Facebook/Instagram";
+
+      var ref = "";
+      try{ ref = (document.referrer||"").toLowerCase(); }catch(e){}
+      if(ref && ref.indexOf(location.host) === -1){
+        if(/google\./.test(ref))          return "da busca do Google";
+        if(/instagram\./.test(ref))       return "do Instagram";
+        if(/facebook\.|fb\./.test(ref))   return "do Facebook";
+        if(/bing\./.test(ref))            return "do Bing";
+        if(/tiktok\./.test(ref))          return "do TikTok";
+        if(/youtube\./.test(ref))         return "do YouTube";
+        if(/whatsapp|wa\.me/.test(ref))   return "do WhatsApp";
+      }
+      return ""; /* origem desconhecida */
+    }
+
+    var channel = detectChannel();
+
+    /* 3) Monta a abertura: sempre com "landing page" + canal (quando houver) */
+    function intro(){
+      return channel
+        ? "Olá, encontrei sua landing page através " + channel + " e "
+        : "Olá, vim pela landing page e ";
+    }
+    window.daimonWaIntro = intro; /* usado também pelo formulário */
+
+    /* 4) Extrai a intenção específica de cada botão, removendo aberturas anteriores */
+    function extractIntent(msg){
+      var s = (msg||"").trim();
+      s = s.replace(/^ol[áa]\s*,?\s*/i, "");
+      s = s.replace(/^encontrei sua landing page atrav[ée]s .*? e\s+/i, "");
+      s = s.replace(/^vim pela landing page(?: da daimon tech\.?)?(?:\s+e\s+)?/i, "");
+      return s.trim();
+    }
+
+    /* 5) Reescreve um link de WhatsApp */
+    function rewriteOne(a){
+      var href = a.getAttribute("href") || "";
+      var m = href.match(/([?&]text=)([^&]*)/);
+      if(!m) return;
+      var current;
+      try{ current = decodeURIComponent(m[2].replace(/\+/g," ")); }catch(e){ current = m[2]; }
+      var novo = intro() + extractIntent(current);
+      a.setAttribute("href", href.replace(/([?&]text=)[^&]*/, "$1" + encodeURIComponent(novo)));
+    }
+    function rewriteAll(){
+      var links = document.querySelectorAll('a[href*="wa.me/"], a[href*="api.whatsapp.com/"]');
+      Array.prototype.forEach.call(links, rewriteOne);
+    }
+
+    if(document.readyState === "loading"){
+      document.addEventListener("DOMContentLoaded", rewriteAll);
+    } else { rewriteAll(); }
+
+    /* Reforço: reescreve no clique, garantindo a origem mais recente */
+    document.addEventListener("click", function(ev){
+      var a = ev.target && ev.target.closest && ev.target.closest('a[href*="wa.me/"], a[href*="api.whatsapp.com/"]');
+      if(a){ rewriteOne(a); }
+    }, true);
+  })();
+  </script>
+
 </body>
 </html>
